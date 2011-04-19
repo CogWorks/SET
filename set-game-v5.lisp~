@@ -293,7 +293,7 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
   (run-set subj-id :model nil :cnd cnd))
 
 (defun run-set-cw ()
-  (run-set-human nil :cnd (if (not (equal (task-condition *cw*) "")) (read-from-string  (task-condition *cw*) ) )))
+  (run-set-human nil :cnd (if (not (equal (task-condition *cw*)) "") (read-from-string  (task-condition *cw*) ) )))
 
 (let ((cw-task nil))
 #+:cogworld
