@@ -28,9 +28,6 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
 
 (defparameter +actr-run-time+ 10)
 
-(defparameter +trial-list+ '(1 2 3))
-(defparameter +set-board+ (first +trial-list+))
-
 (defparameter +games+ '(
                         ( 8 14 15 18 19 20 27 31 46 47 62 75) ;;game 0 = +set-board+
                         ( 4  9 14 15 21 33 36 37 59 76 77 78) ;;game 1
@@ -39,14 +36,18 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
                         (11 20 33 37 38 39 40 44 46 56 64 68) ;;game 4
                         ( 2  6 25 37 49 51 58 66 73 74 77 80) ;;game 5
                         ( 5 12 18 19 28 31 34 59 61 76 77 80) ;;game 6
-                        ( 9 10 18 22 27 34 38 42 51 76 77 80)
-                        ( 2 29 30 37 40 43 50 53 61 68 70 75) ;;easy
-                        (10 19 36 39 41 43 44 53 60 67 76 78)
-                        ( 2 15 17 20 28 33 45 48 49 50 66 80) ; 5 of 6
-                        (13 15 18 19 25 40 41 42 56 61 65 69) ; 6 of 6 4 min 2 sec
+                        ( 9 10 18 22 27 34 38 42 51 76 77 80) ;;game 7
+                        ( 2 29 30 37 40 43 50 53 61 68 70 75) ;;game 8 easy
+                        (10 19 36 39 41 43 44 53 60 67 76 78) ;;game 9 
+                        ( 2 15 17 20 28 33 45 48 49 50 66 80) ;;game 10 5 of 6
+                        (13 15 18 19 25 40 41 42 56 61 65 69) ;;game 11 6 of 6 4 min 2 sec
+                        ( 2  7 10 21 29 34 37 54 56 59 63 64) ;;game 12  3 easy 3 hard
                         ))
 
 (defparameter +latin-square+ '((0 1 2 3 4 5) (1 3 0 5 2 4) (2 0 4 1 5 3) (3 5 1 4 0 2) (4 2 5 0 3 1) (5 4 3 2 1 0)))
+(defparameter +cnds+ '(A B C D E F))
+(defparameter +trial-list+ '(1 2 3))  ;;set by cw condition
+(defparameter +set-board+ (first +trial-list+))
 
 (when (and +set-board+ (or (minusp +set-board+) (>= +set-board+ (length +games+))))
     (capi:display-message (format nil "Invalid +set-board+ parameter ~S" +set-board+))
@@ -130,7 +131,8 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
    (current-cards :initarg :current-cards :accessor current-cards :initform nil)
    (subject-id :initarg :subject-id :accessor subject-id  :initform nil)
    (f-stream :initarg :f-stream :accessor f-stream :initform nil)
-   (modelp :initarg nil :accessor modelp :initarg :modelp ))
+   (modelp :initarg nil :accessor modelp :initarg :modelp )
+   )
   (:panes
    (game-btn capi:push-button :title "" :text "Start" :data 'start :callback 'game-btn-callback :accessor game-btn))
   (:layouts
@@ -287,11 +289,11 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
 (defun run-set-model (subj-id)
   (run-set subj-id :model t))
 
-(defun run-set-human (subj-id)
-  (run-set subj-id :model nil))
+(defun run-set-human (subj-id &key (cnd nil))
+  (run-set subj-id :model nil :cnd cnd))
 
 (defun run-set-cw ()
-  (run-set-human nil))
+  (run-set-human nil :cnd (if (not (equal (task-condition *cw*) "")) (read-from-string  (task-condition *cw*) ) )))
 
 (let ((cw-task nil))
 #+:cogworld
@@ -299,10 +301,11 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
   (defun get-cw-task () cw-task)
 )
 
-(defun run-set (subj-id &key  (model t))
+(defun run-set (subj-id &key  (model t) (cnd nil))
   (let ((actr-loaded  (member :act-r-6.0 *features*))) 
     (cond ((or (null model) actr-loaded) 
            (let ((fs (if subj-id (open (concatenate 'string  "~/SET-" subj-id) :direction :output :if-exists :overwrite :if-does-not-exist :create))))
+             (if cnd (setf +trial-list+ (nth (position cnd +cnds+) +latin-square+)))
              (set-game (make-instance 'set-board :subject-id subj-id :f-stream fs :modelp model))
              (show-game (set-game) model)
              (log-event fs 'start-game)))
