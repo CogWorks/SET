@@ -27,7 +27,9 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
 |#
 
 (defparameter +actr-run-time+ 10)
-(defparameter +set-board+ 0)
+
+(defparameter +trial-list+ '(1 2 3))
+(defparameter +set-board+ (first +trial-list+))
 
 (defparameter +games+ '(
                         ( 8 14 15 18 19 20 27 31 46 47 62 75) ;;game 0 = +set-board+
@@ -43,6 +45,8 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
                         ( 2 15 17 20 28 33 45 48 49 50 66 80) ; 5 of 6
                         (13 15 18 19 25 40 41 42 56 61 65 69) ; 6 of 6 4 min 2 sec
                         ))
+
+(defparameter +latin-square+ '((0 1 2 3 4 5) (1 3 0 5 2 4) (2 0 4 1 5 3) (3 5 1 4 0 2) (4 2 5 0 3 1) (5 4 3 2 1 0)))
 
 (when (and +set-board+ (or (minusp +set-board+) (>= +set-board+ (length +games+))))
     (capi:display-message (format nil "Invalid +set-board+ parameter ~S" +set-board+))
@@ -78,7 +82,7 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
 
 (defun make-cards (images num-cols)
   (let* ((cards nil) (l1 nil) (l2 nil)
-         (ran-lst (nth (aif +set-board+ it (random (length +games+))) +games+)))
+         (ran-lst (permute-a-list (nth (aif +set-board+ it (random (length +games+))) +games+))))
     (dotimes (i (floor +game-size+ num-cols) )
       (dotimes (j num-cols)
         (let* ((idx (+ j (* i num-cols)))
@@ -86,7 +90,7 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
                (c (make-instance 'card-check-box  :data (+ j (* i num-cols)) :text ""
                            :value val ;;(- val 1)
                            :selection-callback 'process-card :retract-callback 'process-retract))
-               (disp (make-instance 'card-display  :visible-min-width 100 :visible-min-height 100
+               (disp (make-instance 'card-display  :visible-min-width 150 :visible-min-height 200
                                     :value val ;;(- val 1)
                                :display-callback 'draw-card
                                )))
@@ -102,7 +106,8 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
 (defmethod draw-card (pane (self card-display) &rest args)
   (capi:with-geometry self
     (gp:draw-rectangle pane capi:%x%  capi:%y% capi:%width% capi:%height%)
-    (aif (myimage self) (gp:draw-image pane (gp:convert-external-image pane it) (+ 5 capi:%x%) (+ 5 capi:%y%) ))))
+    (if (draw-enable (set-game))
+     (aif (myimage self) (gp:draw-image pane (gp:convert-external-image pane it) (+ 5 capi:%x%) (+ 5 capi:%y%) )))))
 
 (defclass set-item-display (capi:drawn-pinboard-object)
  ((image :initform nil :accessor image)
@@ -115,31 +120,56 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
     (dotimes (i 18 (reverse res))
         (push (make-instance 'set-item-display :ind i
                              :display-callback 'update-set-display
-                             :visible-min-width 100 :visible-min-height 60) res))))
+                             :visible-min-width 150 :visible-min-height 120) res))))
 
 (capi:define-interface set-board ()
-  (
+  ((trial-num :initform 0 :accessor trial-num)
+   (draw-enable :initform nil :accessor draw-enable)
    (game-size :initarg :game-size :accessor game-size :initform +game-size+)
    (num-sets-found :accessor num-sets-found :initform 0)
    (current-cards :initarg :current-cards :accessor current-cards :initform nil)
    (subject-id :initarg :subject-id :accessor subject-id  :initform nil)
    (f-stream :initarg :f-stream :accessor f-stream :initform nil)
    (modelp :initarg nil :accessor modelp :initarg :modelp ))
+  (:panes
+   (game-btn capi:push-button :title "" :text "Start" :data 'start :callback 'game-btn-callback :accessor game-btn))
   (:layouts
    (card-list capi:grid-layout (make-cards (get-images) 4) :columns 4 :accessor card-list :x 0 :y 0 )
-   (sets-found capi:grid-layout (make-sets-found) :accessor sets-found :columns 3 :x 450 :y 0)
+   (sets-found capi:grid-layout (make-sets-found) :accessor sets-found :columns 3 :x 650 :y 0)
  ;  (game-row capi:row-layout '(card-list sets-found) :x 0 :y 0 :accessor game-row)
    (pinboard capi:pinboard-layout '(card-list sets-found) :accessor pinboard
               :draw-pinboard-objects :local-buffer)
+   (game-btn-layout capi:row-layout '(nil game-btn nil))
+   (main capi:column-layout '( pinboard game-btn-layout))
    )
   (:default-initargs :title "Set Game Deck"
-   :destroy-callback 'stop-set
+   :window-styles '(:BORDERLESS)
    :initial-focus nil
-    :layout 'pinboard
-    :best-x 0
-    :best-y 0
-    :best-width 800
-    :best-height 400))
+    :layout 'main
+    :best-x (floor (- (capi:screen-width (capi:convert-to-screen)) 1200) 2)
+    :best-y (floor (- (capi:screen-height (capi:convert-to-screen)) 900) 2)
+    :best-width 1200
+    :best-height 900))
+
+
+(defun game-btn-callback (data interface)
+  (let ((btn (game-btn interface)))
+    (case data
+      (start
+       (setf (capi:item-text btn) "Next")
+       (setf (capi:item-data btn) 'next)
+       (setf (draw-enable interface) t)
+       (gp:invalidate-rectangle (pinboard interface))
+       (log-event (f-stream interface) 'start-trial (trial-num interface) 'game +set-board+ ))
+      (next
+       (cond ((< (1+ (trial-num interface)) (length +trial-list+))
+              (setf +set-board+ (nth (incf (trial-num interface)) +trial-list+))
+              (setf (capi:layout-description (card-list interface)) (make-cards (get-images) 4))
+              (setf (capi:layout-description (sets-found interface)) (make-sets-found))
+              (gp:invalidate-rectangle (pinboard interface))
+              (log-event (f-stream interface) 'start-trial (trial-num interface) 'game +set-board+ ))
+             (t
+              (stop-set interface)))))))
 
 (defmethod update-set-display (pane (self set-item-display) &rest args)
   (declare (ignore args))
@@ -197,12 +227,15 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
   (setf (value obj) val))
 
 (defun log-event (fs event &rest data)
-  (write event :stream fs) (write-char #\tab fs)
-  (write (get-internal-real-time) :stream fs)  (write-char #\tab fs)
-  (dolist (val data)
-    (write val :stream fs)
-    (write-char #\tab fs))
-  (write-char #\newline fs))
+  (cond (fs
+         (write event :stream fs) (write-char #\tab fs)
+         (write (get-internal-real-time) :stream fs)  (write-char #\tab fs)
+         (dolist (val data)
+           (write val :stream fs)
+           (write-char #\tab fs))
+         (write-char #\newline fs))
+        (t
+         (log-info `(,event ,@data)))))
          
 (defun permute-a-list (lis)
   "Return a random permutation of the list"
@@ -257,10 +290,19 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
 (defun run-set-human (subj-id)
   (run-set subj-id :model nil))
 
+(defun run-set-cw ()
+  (run-set-human nil))
+
+(let ((cw-task nil))
+#+:cogworld
+  (setq my-task (register-task "Set" :run-function 'run-set-cw))
+  (defun get-cw-task () cw-task)
+)
+
 (defun run-set (subj-id &key  (model t))
   (let ((actr-loaded  (member :act-r-6.0 *features*))) 
     (cond ((or (null model) actr-loaded) 
-           (let ((fs (open (concatenate 'string  "~/SET-" subj-id) :direction :output :if-exists :overwrite :if-does-not-exist :create)))
+           (let ((fs (if subj-id (open (concatenate 'string  "~/SET-" subj-id) :direction :output :if-exists :overwrite :if-does-not-exist :create))))
              (set-game (make-instance 'set-board :subject-id subj-id :f-stream fs :modelp model))
              (show-game (set-game) model)
              (log-event fs 'start-game)))
@@ -268,14 +310,20 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
            (capi:display-message " ACT-R is not loaded" )))))
 
 (defun stop-set (&optional (interface (set-game)))
+  (capi:display-message "Experiment is Finished~%~%Thank-you!!")
+  (log-event (f-stream interface) 'stop 'game)
   (awhen (f-stream interface)
-         (log-event it 'stop-game)
          (close it)
-         (setf (f-stream interface) nil)))
+         (setf (f-stream interface) nil))
+  (capi:destroy interface)
+  (awhen (get-cw-task)
+    (task-finished it)
+    (stop-eyetracking)))
 
 (defmethod show-game ((win set-board) modelp)
   (declare (ignore modelp))
   (capi:display win)
+  (if (get-cw-task) (start-eyetracking))
   )
 
 (defun get-cards ()
@@ -301,6 +349,7 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
 (defun mean (lst)
   (when (and  (plusp (length lst)) (every 'numberp lst))
      (floor (reduce '+ lst) (length lst))))
+
 
 
 
