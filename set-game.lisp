@@ -37,6 +37,11 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
                         (11 20 33 37 38 39 40 44 46 56 64 68) ;;game 4
                         ( 2  6 25 37 49 51 58 66 73 74 77 80) ;;game 5
                         ( 5 12 18 19 28 31 34 59 61 76 77 80) ;;game 6
+                        ( 9 10 18 22 27 34 38 42 51 76 77 80)
+                        ( 2 29 30 37 40 43 50 53 61 68 70 75) ;;easy
+                        (10 19 36 39 41 43 44 53 60 67 76 78)
+                        ( 2 15 17 20 28 33 45 48 49 50 66 80) ; 5 of 6
+                        (13 15 18 19 25 40 41 42 56 61 65 69) ; 6 of 6 4 min 2 sec
                         ))
 
 (when (and +set-board+ (or (minusp +set-board+) (>= +set-board+ (length +games+))))
@@ -211,15 +216,30 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
     (multiple-value-bind (c d) (floor b 9)
       (multiple-value-bind ( e f) (floor d 3)
       (list a c e f)))))  ;texture shape color number
-;texture  (solid stripped open)
-;shape (squiggle diamond oval)
-;color (red purple green)
-;number (1 2 3)
-(defun set-p (n) ; n isa list of 3 cards
+
+(defun get-attributes-sym (n)
+  (destructuring-bind (texture shape color number) (get-attributes n)
+    (list (nth texture '(solid stripped open))
+          (nth shape '(squiggle diamond oval))
+          (nth color '(red purple green))
+          (nth number '(1 2 3)))))
+
+(defun set-p (n)
   (destructuring-bind (attr-1 attr-2 attr-3) (mapcar 'get-attributes n) 
     (equal  (mapcar (lambda(x y z) (or (= x y z) (and (/= x y) (/= x z) (/= y z)))) attr-1 attr-2 attr-3)
             '(t t t t))))
 
+(defun set-solution (lst) ;lst = 1 game
+  (let ((solutions nil) c1 c2 c3 lst2)
+    (dotimes (i 12)
+      (setq c1 (nth i lst))
+      (dotimes (j 11)
+        (setq c2 (nth j (setq lst2 (remove c1 lst))))
+        (dotimes (k 10)
+          (setq c3 (nth k (remove c2 lst2)))
+          (if (set-p (list c1 c2 c3)) (setq solutions (adjoin (sort (list c1 c2 c3) #'<) solutions :test 'equal))))))
+    (dolist (sol solutions)
+      (format t "~%~S" (mapcar 'get-attributes-sym sol)))))
    
 (let* ((set-game nil)
        (path (directory-namestring (current-pathname)))
