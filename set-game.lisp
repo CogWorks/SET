@@ -27,6 +27,7 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
 |#
 
 (defparameter +actr-run-time+ 10)
+(defparameter +game-timeout+ 360)
 
 (defparameter +games+ '(
                         ( 8 14 15 18 19 20 27 31 46 47 62 75) ;;game 0 = +set-board+
@@ -43,11 +44,11 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
                         (13 15 18 19 25 40 41 42 56 61 65 69) ;;game 11 6 of 6 4 min 2 sec
                         ( 2  7 10 21 29 34 37 54 56 59 63 64) ;;game 12  3 easy 3 hard
                         ))
-
-(defparameter +latin-square+ '((0 1 2 3 4 5) (1 3 0 5 2 4) (2 0 4 1 5 3) (3 5 1 4 0 2) (4 2 5 0 3 1) (5 4 3 2 1 0)))
-(defparameter +cnds+ '(A B C D E F))
-(defparameter +trial-list+ '(1 2 3))  ;;set by cw condition
-(defparameter +set-board+ (first +trial-list+))
+(defparameter +trial-list-to-game-map+ '(0 4 8 10 2 12)) ;;indexs +games+
+(defparameter +latin-square+ '((0 1 2 3 4 5) (1 3 0 5 2 4) (2 0 4 1 5 3) (3 5 1 4 0 2) (4 2 5 0 3 1) (5 4 3 2 1 0))) ;;indexs +trial-list-to-game-map+
+(defparameter +cnds+ '(A B C D E F)) ;;position
+(defparameter +trial-list+ '(0 1 2 3 4 5))  ;;set by cw condition from +latin-square+
+(defparameter +set-board+ (nth (first +trial-list+) +trial-list-to-game-map+ )) ;current game
 
 (when (and +set-board+ (or (minusp +set-board+) (>= +set-board+ (length +games+))))
     (capi:display-message (format nil "Invalid +set-board+ parameter ~S" +set-board+))
@@ -83,7 +84,7 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
 
 (defun make-cards (images num-cols)
   (let* ((cards nil) (l1 nil) (l2 nil)
-         (ran-lst (permute-a-list (nth (aif +set-board+ it (random (length +games+))) +games+))))
+         (ran-lst (permute-a-list (nth (aif +set-board+ it (random (length +games+))) +games+))))  ;;
     (dotimes (i (floor +game-size+ num-cols) )
       (dotimes (j num-cols)
         (let* ((idx (+ j (* i num-cols)))
@@ -129,18 +130,23 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
    (game-size :initarg :game-size :accessor game-size :initform +game-size+)
    (num-sets-found :accessor num-sets-found :initform 0)
    (current-cards :initarg :current-cards :accessor current-cards :initform nil)
+   (current-sets :initform nil :accessor current-sets)
    (subject-id :initarg :subject-id :accessor subject-id  :initform nil)
    (f-stream :initarg :f-stream :accessor f-stream :initform nil)
    (modelp :initarg nil :accessor modelp :initarg :modelp )
+   (second-timer :initform -1 :accessor second-timer :initarg :second-timer)
+   (timer-obj :accessor timer-obj :initform nil)
    )
   (:panes
-   (game-btn capi:push-button :title "" :text "Start" :data 'start :callback 'game-btn-callback :accessor game-btn))
+   (game-btn capi:push-button :title "" :text "Start" :data 'start :callback 'game-btn-callback :accessor game-btn)
+   (timer capi:title-pane :title "Game Timer" :text "00:00" :x 10 :y 10 :accessor timer)
+   (gameno capi:title-pane :title "Game Number" :text " " :x 10 :y 30 :accessor gameno))
   (:layouts
-   (card-list capi:grid-layout (make-cards (get-images) 4) :columns 4 :accessor card-list :x 0 :y 0 )
-   (sets-found capi:grid-layout (make-sets-found) :accessor sets-found :columns 3 :x 650 :y 0)
+   (card-list capi:grid-layout (make-cards (get-images) 4) :columns 4 :accessor card-list :x 200 :y 50 )
+   (sets-found capi:grid-layout (make-sets-found) :accessor sets-found :columns 3 :x 850 :y 50)
  ;  (game-row capi:row-layout '(card-list sets-found) :x 0 :y 0 :accessor game-row)
-   (pinboard capi:pinboard-layout '(card-list sets-found) :accessor pinboard
-              :draw-pinboard-objects :local-buffer)
+   (pinboard capi:pinboard-layout '(timer gameno card-list sets-found) :accessor pinboard
+              :draw-pinboard-objects :local-buffer) 
    (game-btn-layout capi:row-layout '(nil game-btn nil))
    (main capi:column-layout '( pinboard game-btn-layout))
    )
@@ -148,11 +154,26 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
    :window-styles '(:BORDERLESS)
    :initial-focus nil
     :layout 'main
-    :best-x (floor (- (capi:screen-width (capi:convert-to-screen)) 1200) 2)
-    :best-y (floor (- (capi:screen-height (capi:convert-to-screen)) 900) 2)
-    :best-width 1200
-    :best-height 900))
 
+ ;   :best-x 0 ;(floor (- (capi:screen-width (capi:convert-to-screen)) 1200) 2)
+ ;   :best-y 0 ;(floor (- (capi:screen-height (capi:convert-to-screen)) 900) 2)
+    :best-width (capi:screen-width (capi:convert-to-screen));1200
+    :best-height (capi:screen-height (capi:convert-to-screen)) ;900
+
+    ))
+
+(defmethod (setf second-timer) :after (val (win set-board))
+  (when (>= val +game-timeout+ ) 
+    (capi:display-message "Time for game has expired")
+    (log-event (f-stream win) 'game-timeout :trial (trial-num win) :found (length (current-sets win)))
+    (game-btn-callback 'next win)))
+      
+(defmethod timer-fn ((win set-board))
+  (capi:apply-in-pane-process (timer win)
+    (lambda (tm)
+      (multiple-value-bind (mn sec) (floor (incf (second-timer win)) 60)
+        (setf (capi:title-pane-text tm) (format nil "~d:~2,'0d" mn sec))))
+    (timer win)))
 
 (defun game-btn-callback (data interface)
   (let ((btn (game-btn interface)))
@@ -161,17 +182,32 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
        (setf (capi:item-text btn) "Next")
        (setf (capi:item-data btn) 'next)
        (setf (draw-enable interface) t)
+       (setf (capi:title-pane-text (gameno interface)) "1") 
        (gp:invalidate-rectangle (pinboard interface))
-       (log-event (f-stream interface) 'start-trial (trial-num interface) 'game +set-board+ ))
+       ;;initialize
+       (setf (second-timer interface) 0)
+       (mp:schedule-timer-relative (setf (timer-obj interface) (mp:make-timer 'capi:execute-with-interface interface 'timer-fn interface)) 1 1)
+       (log-event (f-stream interface) 'set-board (mapcar 'value (capi:layout-description (card-list interface))))
+       (log-event (f-stream interface) 'start-trial (trial-num interface) 'game +set-board+ +trial-list+ ))
       (next
        (cond ((< (1+ (trial-num interface)) (length +trial-list+))
-              (setf +set-board+ (nth (incf (trial-num interface)) +trial-list+))
+              (setf +set-board+ (nth (nth (incf (trial-num interface)) +trial-list+) +trial-list-to-game-map+))
+              (setf (capi:title-pane-text (gameno interface)) (write-to-string (1+ (trial-num interface))))
               (setf (capi:layout-description (card-list interface)) (make-cards (get-images) 4))
               (setf (capi:layout-description (sets-found interface)) (make-sets-found))
+              (capi:apply-in-pane-process interface #'capi:raise-interface interface)
               (gp:invalidate-rectangle (pinboard interface))
+              ;;;continue play
+              (aif (timer-obj interface) (mp:unschedule-timer it))
+              (setf (second-timer interface) 0)  
+              (mp:schedule-timer-relative (setf (timer-obj interface) (mp:make-timer 'capi:execute-with-interface interface 'timer-fn  interface)) 1 1)
+              (log-event (f-stream interface) 'set-board (mapcar 'value (capi:layout-description (card-list interface))))
               (log-event (f-stream interface) 'start-trial (trial-num interface) 'game +set-board+ ))
              (t
-              (stop-set interface)))))))
+              (aif (timer-obj interface) (mp:unschedule-timer it))
+              (stop-set interface))))
+       
+      )))
 
 (defmethod update-set-display (pane (self set-item-display) &rest args)
   (declare (ignore args))
@@ -207,23 +243,32 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
         (log-event f-stream 'click data )
         (setf current-cards (cons card current-cards  )) ;(capi:display-message (format nil "~S" DATA))
         (when (eql 3 (length  current-cards))
-          (cond ((set-p (mapcar 'value current-cards))
-                 (let ((set-disp (capi:layout-description (sets-found interface)))
-                       (start-idx (* 3 num-sets-found)))
-                   (dotimes (i 3)
-                     (let ((idx (+ start-idx i))) 
-                       (setf (image (nth idx set-disp)) (myimage (nth i current-cards)))
-                       (update-set-item (value card) (nth idx set-disp) )
-                       (gp:invalidate-rectangle (nth idx set-disp)))))
-                 (incf num-sets-found)
-                 (log-event f-stream 'set-found num-sets-found (mapcar 'value current-cards) ))
-                (t
-                 (log-event f-stream 'not-a-set num-sets-found (mapcar 'value current-cards))
-                 (if (null (modelp interface)) (capi:display-message "Not a Set"))))
-          (clear-current-set interface)
-          )        
-        
-  ))))
+          (let ((vals (mapcar 'value current-cards)))
+            (cond ((set-p vals)
+                   (cond ((duplicate-set-p vals (current-sets interface))
+                          (log-event f-stream 'duplicate-set num-sets-found vals)
+                          (if (null (modelp interface)) (capi:display-message "Duplicate Set")))
+                         (t
+                          (let ((set-disp (capi:layout-description (sets-found interface)))
+                                (start-idx (* 3 num-sets-found)))
+                            (dotimes (i 3)
+                              (let ((idx (+ start-idx i))) 
+                                (setf (image (nth idx set-disp)) (myimage (nth i current-cards)))
+                                (update-set-item (value card) (nth idx set-disp) )
+                                (gp:invalidate-rectangle (nth idx set-disp)))))
+                          (incf num-sets-found)
+                          (push vals (current-sets interface))
+                          (log-event f-stream 'set-found num-sets-found vals ))))
+                  (t
+                   (log-event f-stream 'not-a-set num-sets-found vals)
+                   (if (null (modelp interface)) (capi:display-message "Not a Set"))))
+            (clear-current-set interface)
+          ) )))))
+
+(defun duplicate-set-p (cur-set sets)
+  (dolist (s sets nil)
+    (if (null (set-difference cur-set s)) (return t))))
+
 
 (defmethod update-set-item (val (obj set-item-display))
   (setf (value obj) val))
@@ -286,18 +331,18 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
   (defun get-images () images)
 )
 
-(defun run-set-model (subj-id)
-  (run-set subj-id :model t))
+(defun run-set-model (subj-id &key (cnd nil))
+  (run-set subj-id :model t :cnd cnd))
 
 (defun run-set-human (subj-id &key (cnd nil))
   (run-set subj-id :model nil :cnd cnd))
 
 (defun run-set-cw ()
-  (run-set-human nil :cnd (if (not (equal (task-condition *cw*) "")) (read-from-string  (task-condition *cw*) ) )))
+  (run-set-human nil :cnd (ignore-errors (read-from-string (task-condition *cw*)) )))
 
 (let ((cw-task nil))
 #+:cogworld
-  (setq my-task (register-task "Set" :run-function 'run-set-cw))
+  (setq cw-task (register-task "Set" :run-function 'run-set-cw))
   (defun get-cw-task () cw-task)
 )
 
@@ -306,9 +351,11 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
     (cond ((or (null model) actr-loaded) 
            (let ((fs (if subj-id (open (concatenate 'string  "~/SET-" subj-id) :direction :output :if-exists :overwrite :if-does-not-exist :create))))
              (if cnd (setf +trial-list+ (nth (position cnd +cnds+) +latin-square+)))
+             (setf +set-board+ (nth (first +trial-list+) +trial-list-to-game-map+ ))
              (set-game (make-instance 'set-board :subject-id subj-id :f-stream fs :modelp model))
+               
              (show-game (set-game) model)
-             (log-event fs 'start-game)))
+             (log-event fs 'start-game :condition cnd (task-condition *cw*))))
           (t
            (capi:display-message " ACT-R is not loaded" )))))
 
