@@ -25,6 +25,42 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
 
 
 |#
+(defmacro defclassic (class supers &rest slots) 
+  `(defclass 
+	,class 
+	,supers    
+	,(mapcar 
+	  #'(lambda (s)                   ; s  = slot specification 
+	     (flet ((build (sn)           ; sn = slot name  
+		      (list sn ':accessor sn ':initarg
+			    (read-from-string                       
+			     (concatenate 'string ":" (symbol-name sn))))))
+       
+	       (cond ((atom s) (append (build s) '(:initform nil)))
+                     ((null (cddr s)) (append (build (first s)) (list ':initform (second s))))
+                     ((eql t (second s))
+                      (append (build (first s)) 
+                              (nthcdr 2 s)
+                              (if (not (member :initform (nthcdr 2 s))) '(:initform nil))))
+                     (t s))))
+	  slots)))
+
+(defmacro aif (test-form then-form &optional else-form)
+  `(let ((it ,test-form))
+     (if it ,then-form ,else-form)))
+
+(defmacro awhen (test-form &body body)
+  `(aif ,test-form
+     (progn ,@body)))
+
+(defmacro while (test &rest body)
+  `(do ()
+      ((not ,test))
+      ,@body))
+
+(defun convert-to-list (x)
+  (if x (read-from-string (concatenate 'string "(" (string-trim '(#\Space #\. #\?) x) ")"))))
+
 
 (defparameter +actr-run-time+ 10)
 (defparameter +game-timeout+ 360)
@@ -43,6 +79,9 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
                         ( 2 15 17 20 28 33 45 48 49 50 66 80) ;;game 10 5 of 6
                         (13 15 18 19 25 40 41 42 56 61 65 69) ;;game 11 6 of 6 4 min 2 sec
                         ( 2  7 10 21 29 34 37 54 56 59 63 64) ;;game 12  3 easy 3 hard
+                        ( 6 14 21 25 32 36 40 46 47 58 71 77) ;;game 13
+                        ( 8 32 44 53 56 67 73 74 78 79 80 81) ;;game 14
+                        ( 9 25 29 33 49 57 60 65 66 68 69 81) ;;game 15 3 easy, 5 of 6
                         ))
 (defparameter +trial-list-to-game-map+ '(0 4 8 10 2 12)) ;;indexs +games+
 (defparameter +latin-square+ '((0 1 2 3 4 5) (1 3 0 5 2 4) (2 0 4 1 5 3) (3 5 1 4 0 2) (4 2 5 0 3 1) (5 4 3 2 1 0))) ;;indexs +trial-list-to-game-map+
@@ -54,18 +93,6 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
     (capi:display-message (format nil "Invalid +set-board+ parameter ~S" +set-board+))
     )
 
-(defmacro aif (test-form then-form &optional else-form)
-  `(let ((it ,test-form))
-     (if it ,then-form ,else-form)))
-
-(defmacro awhen (test-form &body body)
-  `(aif ,test-form
-     (progn ,@body)))
-
-(defmacro while (test &rest body)
-  `(do ()
-      ((not ,test))
-      ,@body))
 
 (defconstant +game-size+ 12)
 
@@ -85,6 +112,7 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
 (defun make-cards (images num-cols)
   (let* ((cards nil) (l1 nil) (l2 nil)
          (ran-lst (permute-a-list (nth (aif +set-board+ it (random (length +games+))) +games+))))  ;;
+    (log-event nil 'make-cards ran-lst)
     (dotimes (i (floor +game-size+ num-cols) )
       (dotimes (j num-cols)
         (let* ((idx (+ j (* i num-cols)))
@@ -681,6 +709,39 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
  
 ) ;;end of model
 ) ;;end of act-r stuff
+
+(defun draw-eye-data (game-num &key (fn nil) (inc nil) (y-off 22))
+  (let ((ln t) (resolution nil) (scale-x nil) (scale-y nil) (start-tm nil) (game-no 0) (cnt 0)
+        (win (pinboard (set-game))))
+    (with-open-file (fs (aif fn it (capi:prompt-for-file "")) :direction :input)
+      (while ln
+        (setq ln (ignore-errors (read-line fs)))
+        (when ln
+          (setq ln (convert-to-list ln)) ;(print ln)
+          (case (if (stringp (fourth ln)) (read-from-string (fourth ln)) (fourth ln))
+            (start-trial 
+             (incf game-no)
+             (setq start-tm (third ln))
+             (format t "~%Game Number ~S ~S" game-no start-tm))
+            (cw-event 
+             (case (if (stringp (fifth ln)) (read-from-string (fifth ln)) (fifth ln))
+               (screen-resolution 
+                (setf resolution (list (sixth ln) (seventh ln)))
+                (setq scale-x (/ (capi:screen-width (capi:convert-to-screen)) (first resolution)))
+                (setq scale-y (/ (capi:screen-height (capi:convert-to-screen)) (second resolution))))))
+            (eg-event
+             (if (eql game-num game-no)
+                 (case (if (stringp (fifth ln)) (read-from-string (fifth ln)) (fifth ln))
+                   (eg-data
+                    (if (plusp (sixth ln))
+                        (destructuring-bind (diam x y &rest args) (subseq ln 6)
+                          (when (and (<= 100 diam 200)
+                                   (<= 0 x (first resolution))
+                                   (<= 0 y (second resolution)))
+                            (incf cnt)
+                            (gp:draw-circle win (round (* x scale-x)) (+ y-off (round (* y scale-y))) 5 :foreground :green)
+                            (if (and inc (zerop (mod cnt inc))) (break)))))))))))))))
+               
 
 
   
