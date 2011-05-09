@@ -83,7 +83,7 @@ The parameter +set-board+ if nil then randomly chooses a game else should be a v
                         ( 8 32 44 53 56 67 73 74 78 79 80 81) ;;game 14
                         ( 9 25 29 33 49 57 60 65 66 68 69 81) ;;game 15 3 easy, 5 of 6
                         ))
-(defparameter +trial-list-to-game-map+ '(0 4 8 10 15 12)) ;;indexs +games+
+(defparameter +trial-list-to-game-map+ '(0 4 8 10 2 12)) ;;indexs +games+
 (defparameter +latin-square+ '((0 1 2 3 4 5) (1 3 0 5 2 4) (2 0 4 1 5 3) (3 5 1 4 0 2) (4 2 5 0 3 1) (5 4 3 2 1 0))) ;;indexs +trial-list-to-game-map+
 (defparameter +cnds+ '(A B C D E F)) ;;position
 (defparameter +trial-list+ '(0 1 2 3 4 5))  ;;set by cw condition from +latin-square+
